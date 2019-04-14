@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
-	// "time"
+	"time"
 
 	"github.com/kukinsula/monitor/mq"
 )
@@ -29,8 +29,10 @@ func main() {
 	reply := make(chan *mq.Metrics)
 
 	quit := make(chan os.Signal, 1)
-	cleanup := make(chan struct{})
+	defer close(quit)
+
 	signal.Notify(quit, os.Interrupt)
+	cleanup := make(chan struct{}, 1)
 
 	go func() {
 		<-quit
@@ -39,40 +41,41 @@ func main() {
 
 		cancel()
 		close(reply)
+
+		cleanup <- struct{}{}
 		close(cleanup)
 	}()
 
 	go func() {
-		for metrics := range reply {
-			fmt.Printf("API <- %s\n", metrics)
+		for range reply {
 		}
 	}()
 
 	go func() {
-		err := service.SubscribeToMetrics(ctx, reply) //
+		err := service.SubscribeToMetrics(ctx, reply)
 		if err != nil {
 			fmt.Printf("API error cannot SubscribeToMetrics: %v", err)
 			return
 		}
 	}()
 
-	// for {
-	// 	params := mq.SigninParams{
-	// 		Login:    "Albert",
-	// 		Password: "Binc",
-	// 		TS:       time.Now().UnixNano(),
-	// 	}
+	go func() {
+		for {
+			params := mq.SigninParams{
+				Login:    "Albert",
+				Password: "Binc",
+				TS:       time.Now().UnixNano(),
+			}
 
-	// 	result, err := service.Signin(ctx, params)
-	// 	if err != nil {
-	// 		fmt.Printf("API error cannot request: %v", err)
-	// 		return
-	// 	}
+			_, err := service.Signin(ctx, params)
+			if err != nil {
+				fmt.Printf("API error cannot request: %+v\n", err)
+				return
+			}
 
-	// 	fmt.Println("RESULT", result)
-
-	// 	time.Sleep(time.Duration(random(100, 300)) * time.Millisecond)
-	// }
+			time.Sleep(time.Duration(random(100, 500)) * time.Millisecond)
+		}
+	}()
 
 	<-cleanup
 

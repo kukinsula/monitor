@@ -2,14 +2,13 @@ package mq
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/satori/go.uuid"
 )
 
-const responseIdLen = 16
+const responseIdLen = 16 // bytes
 
 type MessageCallback func(message *redis.Message) error
 type RequestCallback func(id string, message *redis.Message) error
@@ -21,9 +20,10 @@ type client struct {
 func newClient(address string) *client {
 	return &client{
 		pool: &redis.Pool{
-			// MaxActive: 10,
-			MaxIdle:     3,
-			IdleTimeout: 240 * time.Second,
+			MaxActive:   10,
+			MaxIdle:     5,
+			IdleTimeout: 200 * time.Second,
+			Wait:        true,
 			Dial: func() (redis.Conn, error) {
 				return redis.Dial("tcp", address)
 			},
@@ -37,27 +37,29 @@ func (client *client) Close() error {
 
 func (client *client) Ping() (string, error) {
 	conn := client.pool.Get()
+	defer conn.Close()
 
 	return redis.String(conn.Do("PING"))
 }
 
-func (client *client) Uuid() string {
-	return uuid.Must(uuid.NewV4()).String()
-}
-
 func (client *client) publish(channel Channel, data []byte) error {
 	conn := client.pool.Get()
+	defer conn.Close()
+
 	_, err := conn.Do("PUBLISH", string(channel), data)
 
 	return err
 }
 
-func (client *client) subscribe(ctx context.Context,
+func (client *client) subscribeWith(ctx context.Context,
 	channel Channel,
-	fn MessageCallback,
+	onSubscribed func() error,
+	onMessage MessageCallback,
 	ping time.Duration) error {
 
 	conn := client.pool.Get()
+	defer conn.Close()
+
 	pubsub := redis.PubSubConn{Conn: conn}
 
 	err := pubsub.Subscribe(string(channel))
@@ -65,29 +67,34 @@ func (client *client) subscribe(ctx context.Context,
 		return err
 	}
 
-	done := make(chan error, 1)
+	done := make(chan error)
 
 	go func() {
-		defer pubsub.Unsubscribe(channel)
-
 		var err error
-		for err == nil {
+
+		defer func() {
+			done <- err
+			close(done)
+		}()
+
+		for goOn := true; goOn; goOn = goOn && err == nil {
 			switch resp := pubsub.Receive().(type) {
-			case redis.Error:
+			case error:
 				err = resp
 
-			case redis.Message:
-				err = fn(&resp)
-
 			case redis.Subscription:
-			case redis.Pong:
+				switch resp.Count {
+				case 0:
+					goOn = false
 
-			default:
-				err = fmt.Errorf("client.subscribe Receive returned unknow type %v", resp)
+				case 1:
+					err = onSubscribed()
+				}
+
+			case redis.Message:
+				err = onMessage(&resp)
 			}
 		}
-
-		done <- err
 	}()
 
 	ticker := time.NewTicker(ping)
@@ -95,19 +102,32 @@ func (client *client) subscribe(ctx context.Context,
 
 	for goOn := true; goOn; goOn = goOn && err == nil {
 		select {
-		case err = <-done:
+		case err = <-done: // Receive goroutine failed or unsubscription ended
 
-		case <-ticker.C:
+		case <-ticker.C: // Connection health check
 			err = pubsub.Ping("")
 
-		case <-ctx.Done():
+		case <-ctx.Done(): // Canceled by caller
 			goOn = false
 		}
 	}
 
-	close(done)
+	pubsub.Unsubscribe(string(channel))
+
+	if err == nil {
+		err = <-done
+	}
 
 	return err
+}
+
+func (client *client) subscribe(ctx context.Context,
+	channel Channel,
+	onMessage MessageCallback,
+	ping time.Duration) error {
+
+	return client.subscribeWith(
+		ctx, channel, func() error { return nil }, onMessage, ping)
 }
 
 func (client *client) request(
@@ -117,35 +137,44 @@ func (client *client) request(
 	fn MessageCallback) error {
 
 	responseId := uuid.Must(uuid.NewV4()).Bytes()
-
 	ctx2, cancel := context.WithCancel(ctx)
-	done := make(chan error, 1)
+	response := make(chan *redis.Message)
+	done := make(chan error)
 
 	go func() {
-		done <- client.subscribe(ctx2, Channel(responseId),
-			func(message *redis.Message) error {
-				cancel() // Stops the response subscription
+		done <- client.subscribeWith(ctx2, Channel(responseId),
+			func() error {
+				conn := client.pool.Get()
+				defer conn.Close()
 
-				fn(message)
+				_, err := conn.Do("RPUSH", string(channel), append(responseId, data...))
+
+				return err
+			},
+
+			func(message *redis.Message) error {
+				response <- message
+
+				cancel() // Stops the response subscription
 
 				return nil
 			},
 			time.Minute)
+
+		close(done)
+		close(response)
 	}()
 
-	conn := client.pool.Get()
-
-	_, err := conn.Do("RPUSH", string(channel), append(responseId, data...))
-	if err != nil {
-		return err
-	}
+	var err error
 
 	select {
+	case message := <-response:
+		err = fn(message)
+
 	case err = <-done: // subscribe failed
+
 	case <-ctx.Done(): // request is Done (maybe a cancel)
 	}
-
-	cancel()
 
 	return err
 }
@@ -155,9 +184,10 @@ func (client *client) respond(
 	channel Channel,
 	fn func(data []byte) ([]byte, error)) error {
 
-	for {
-		conn := client.pool.Get()
+	conn := client.pool.Get()
+	defer conn.Close()
 
+	for {
 		values, err := redis.Values(conn.Do("BLPOP", string(channel), 0))
 		if err != nil {
 			return err

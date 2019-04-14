@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/kukinsula/monitor/mq"
 )
@@ -23,8 +24,15 @@ func main() {
 	}
 
 	ctx := context.TODO()
-	err = service.HandleSignin(ctx)
+	err = service.HandleSignin(ctx,
+		func(params *mq.SigninParams) *mq.SigninResult {
+			return &mq.SigninResult{
+				Authenticated: true,
+				Token:         "AZERTY.1234.QWERTY",
+				TS:            time.Now().UnixNano(),
+			}
+		})
 	if err != nil {
-		fmt.Printf("LOGIN: Error cannot 'HandleSignin': %v", err)
+		fmt.Printf("LOGIN: Error cannot 'HandleSignin': %v\n", err)
 	}
 }

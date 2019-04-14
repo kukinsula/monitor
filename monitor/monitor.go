@@ -22,7 +22,7 @@ func main() {
 	}
 
 	for {
-		time.Sleep(time.Duration(random(10, 100)) * time.Millisecond)
+		time.Sleep(time.Duration(random(100, 500)) * time.Millisecond)
 
 		metrics := &mq.Metrics{
 			CPU: map[string]interface{}{
@@ -45,10 +45,8 @@ func main() {
 
 		err = service.PublishMetrics(metrics)
 		if err != nil {
-			fmt.Printf("MONITOR: publish Metrics failed: %v", metrics, err)
+			fmt.Printf("MONITOR: PUB Metrics failed: %v\n", metrics, err)
 			return
-		} else {
-			fmt.Printf("MONITOR -> %s\n", metrics)
 		}
 	}
 
