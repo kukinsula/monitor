@@ -8,22 +8,21 @@ import (
 	"github.com/kukinsula/monitor/mq"
 )
 
-var service *mq.Service
-
 func main() {
-	fmt.Print("LOGIN: connecting...")
+	fmt.Println("Connecting...")
 
-	service = mq.NewService(":6379")
-	defer service.Close()
-
-	fmt.Println("\nLOGIN: successfully connected!")
-
-	_, err := service.Ping()
+	service, err := mq.NewService(":6379")
 	if err != nil {
-		fmt.Printf("LOGIN: Error cannot 'PING': %v", err)
+		fmt.Printf("Redis connection failed: %v", err)
+		return
 	}
 
+	defer service.Close()
+
+	fmt.Println("Successfully connected!")
+
 	ctx := context.TODO()
+
 	err = service.HandleSignin(ctx,
 		func(params *mq.SigninParams) *mq.SigninResult {
 			return &mq.SigninResult{
@@ -33,6 +32,8 @@ func main() {
 			}
 		})
 	if err != nil {
-		fmt.Printf("LOGIN: Error cannot 'HandleSignin': %v\n", err)
+		fmt.Println("HandleSignin failed: %v", err)
 	}
+
+	fmt.Println("Done")
 }

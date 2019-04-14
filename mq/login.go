@@ -8,8 +8,8 @@ import (
 )
 
 type SigninParams struct {
-	Login      string
-	Password   string
+	Login      string `json:"login" binding:"required"`
+	Password   string `json:"password" binding:"required"`
 	ResponseId string
 	TS         int64
 }
@@ -20,19 +20,19 @@ type SigninResult struct {
 	TS            int64
 }
 
-func (s *SigninParams) String() string {
-	return fmt.Sprintf("{%s %s %d}", s.Login, s.Password, s.TS)
+func (params *SigninParams) String() string {
+	return fmt.Sprintf("{%s %s %d}", params.Login, params.Password, params.TS)
 }
 
-func (s *SigninResult) String() string {
-	return fmt.Sprintf("{%t %s %d}", s.Authenticated, s.Token, s.TS)
+func (result *SigninResult) String() string {
+	return fmt.Sprintf("{%t %s %d}", result.Authenticated, result.Token, result.TS)
 }
 
 func (service *Service) Signin(
 	ctx context.Context,
 	params SigninParams) (*SigninResult, error) {
 
-	fmt.Printf("-> %v\n", params)
+	fmt.Println("->", params)
 
 	data, err := service.codec.Marshal(params)
 	if err != nil {
@@ -52,7 +52,7 @@ func (service *Service) Signin(
 				return err
 			}
 
-			fmt.Printf("<- %v\n", result)
+			fmt.Println("<-", result)
 
 			reply <- result
 
@@ -80,11 +80,11 @@ func (service *Service) HandleSignin(
 				return nil, err
 			}
 
-			fmt.Printf("<- %v\n", params)
+			fmt.Println("<-", params)
 
 			result := fn(params)
 
-			fmt.Printf("-> %v\n", result)
+			fmt.Println("->", result)
 
 			return service.codec.Marshal(result)
 		})

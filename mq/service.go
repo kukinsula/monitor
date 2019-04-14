@@ -5,9 +5,16 @@ type Service struct {
 	codec Codec
 }
 
-func NewService(address string) *Service {
-	return &Service{
-		client: newClient(address),
-		codec:  &JsonCodec{},
+func NewService(address string) (*Service, error) {
+	client := newClient(address)
+
+	_, err := client.Ping()
+	if err != nil {
+		return nil, err
 	}
+
+	return &Service{
+		client: client,
+		codec:  &JsonCodec{},
+	}, nil
 }

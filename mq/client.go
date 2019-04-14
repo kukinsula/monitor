@@ -20,8 +20,8 @@ type client struct {
 func newClient(address string) *client {
 	return &client{
 		pool: &redis.Pool{
-			MaxActive:   10,
-			MaxIdle:     5,
+			MaxActive:   200,
+			MaxIdle:     10,
 			IdleTimeout: 200 * time.Second,
 			Wait:        true,
 			Dial: func() (redis.Conn, error) {

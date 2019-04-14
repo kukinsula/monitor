@@ -9,20 +9,20 @@ import (
 )
 
 func main() {
-	fmt.Print("MONITOR: connecting...")
+	fmt.Println("Connecting...")
 
-	service := mq.NewService(":6379")
-	defer service.Close()
-
-	fmt.Println("\nMONITOR: successfully connected!")
-
-	_, err := service.Ping()
+	service, err := mq.NewService(":6379")
 	if err != nil {
-		fmt.Printf("MONITOR: Error cannot 'PING': %v", err)
+		fmt.Printf("Redis connection failed: %v", err)
+		return
 	}
 
+	defer service.Close()
+
+	fmt.Println("Successfully connected!")
+
 	for {
-		time.Sleep(time.Duration(random(100, 500)) * time.Millisecond)
+		time.Sleep(time.Duration(random(500, 1000)) * time.Millisecond)
 
 		metrics := &mq.Metrics{
 			CPU: map[string]interface{}{
@@ -45,12 +45,12 @@ func main() {
 
 		err = service.PublishMetrics(metrics)
 		if err != nil {
-			fmt.Printf("MONITOR: PUB Metrics failed: %v\n", metrics, err)
+			fmt.Printf("PUB Metrics failed: %v\n", metrics, err)
 			return
 		}
 	}
 
-	fmt.Println("MONITOR: done!")
+	fmt.Println("Done")
 }
 
 func random(min, max int) int64 {

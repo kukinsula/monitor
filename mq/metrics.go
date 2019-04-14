@@ -29,7 +29,7 @@ func (service *Service) PublishMetrics(metrics *Metrics) error {
 		return err
 	}
 
-	fmt.Printf("-> %v\n", metrics)
+	fmt.Println("->", metrics)
 
 	return service.publish(METRICS, data)
 }
@@ -48,7 +48,7 @@ func (service *Service) SubscribeToMetrics(
 				return err
 			}
 
-			fmt.Printf("<- %v\n", metrics)
+			fmt.Println("<-", metrics)
 
 			reply <- metrics
 
