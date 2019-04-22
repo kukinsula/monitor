@@ -6,9 +6,6 @@ import (
 	"os"
 	"os/signal"
 
-	"context"
-	"time"
-
 	"github.com/kukinsula/monitor/mq"
 )
 
@@ -22,24 +19,6 @@ func main() {
 	}
 
 	fmt.Println("Successfully connected!")
-
-	go func() {
-		for {
-			params := mq.SigninParams{
-				Login:    "Albert",
-				Password: "Binc",
-				TS:       time.Now().UnixNano(),
-			}
-
-			_, err := service.Signin(context.TODO(), params)
-			if err != nil {
-				fmt.Printf("API error cannot request: %+v\n", err)
-				return
-			}
-
-			time.Sleep(time.Duration(random(100, 500)) * time.Millisecond)
-		}
-	}()
 
 	quit := make(chan os.Signal, 1)
 	cleanup := make(chan struct{}, 1)

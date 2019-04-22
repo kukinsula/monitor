@@ -17,11 +17,19 @@ type client struct {
 	pool *redis.Pool
 }
 
+type SubscribeParams struct {
+	Context      context.Context
+	Channel      Channel
+	OnSubscribed func() error
+	OnMessage    MessageCallback
+	Ping         time.Duration
+}
+
 func newClient(address string) *client {
 	return &client{
 		pool: &redis.Pool{
-			MaxActive:   200,
-			MaxIdle:     10,
+			MaxActive:   10,
+			MaxIdle:     5,
 			IdleTimeout: 200 * time.Second,
 			Wait:        true,
 			Dial: func() (redis.Conn, error) {
@@ -51,53 +59,22 @@ func (client *client) publish(channel Channel, data []byte) error {
 	return err
 }
 
-func (client *client) subscribeWith(ctx context.Context,
-	channel Channel,
-	onSubscribed func() error,
-	onMessage MessageCallback,
-	ping time.Duration) error {
-
+func (client *client) subscribe(params SubscribeParams) error {
 	conn := client.pool.Get()
 	defer conn.Close()
 
 	pubsub := redis.PubSubConn{Conn: conn}
 
-	err := pubsub.Subscribe(string(channel))
+	err := pubsub.Subscribe(string(params.Channel))
 	if err != nil {
 		return err
 	}
 
 	done := make(chan error)
 
-	go func() {
-		var err error
+	go client.receive(pubsub, done, params.OnSubscribed, params.OnMessage)
 
-		defer func() {
-			done <- err
-			close(done)
-		}()
-
-		for goOn := true; goOn; goOn = goOn && err == nil {
-			switch resp := pubsub.Receive().(type) {
-			case error:
-				err = resp
-
-			case redis.Subscription:
-				switch resp.Count {
-				case 0:
-					goOn = false
-
-				case 1:
-					err = onSubscribed()
-				}
-
-			case redis.Message:
-				err = onMessage(&resp)
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(ping)
+	ticker := time.NewTicker(params.Ping)
 	defer ticker.Stop()
 
 	for goOn := true; goOn; goOn = goOn && err == nil {
@@ -107,12 +84,12 @@ func (client *client) subscribeWith(ctx context.Context,
 		case <-ticker.C: // Connection health check
 			err = pubsub.Ping("")
 
-		case <-ctx.Done(): // Canceled by caller
+		case <-params.Context.Done(): // Canceled by caller
 			goOn = false
 		}
 	}
 
-	pubsub.Unsubscribe(string(channel))
+	pubsub.Unsubscribe(string(params.Channel))
 
 	if err == nil {
 		err = <-done
@@ -121,13 +98,39 @@ func (client *client) subscribeWith(ctx context.Context,
 	return err
 }
 
-func (client *client) subscribe(ctx context.Context,
-	channel Channel,
-	onMessage MessageCallback,
-	ping time.Duration) error {
+func (client *client) receive(
+	pubsub redis.PubSubConn,
+	done chan error,
+	onSubscribed func() error,
+	onMessage MessageCallback) {
 
-	return client.subscribeWith(
-		ctx, channel, func() error { return nil }, onMessage, ping)
+	var err error
+
+	for goOn := true; goOn; goOn = goOn && err == nil {
+		switch resp := pubsub.Receive().(type) {
+		case error:
+			err = resp
+
+		case redis.Subscription:
+			switch resp.Count {
+			case 0:
+				goOn = false
+
+			case 1:
+				if onSubscribed != nil {
+					err = onSubscribed()
+				}
+			}
+
+		case redis.Message:
+			if onMessage != nil {
+				err = onMessage(&resp)
+			}
+		}
+	}
+
+	done <- err
+	close(done)
 }
 
 func (client *client) request(
@@ -142,8 +145,11 @@ func (client *client) request(
 	done := make(chan error)
 
 	go func() {
-		done <- client.subscribeWith(ctx2, Channel(responseId),
-			func() error {
+		done <- client.subscribe(SubscribeParams{
+			Context: ctx2,
+			Channel: Channel(responseId),
+
+			OnSubscribed: func() error {
 				conn := client.pool.Get()
 				defer conn.Close()
 
@@ -152,14 +158,15 @@ func (client *client) request(
 				return err
 			},
 
-			func(message *redis.Message) error {
+			OnMessage: func(message *redis.Message) error {
 				response <- message
 
 				cancel() // Stops the response subscription
 
 				return nil
 			},
-			time.Minute)
+			Ping: time.Minute,
+		})
 
 		close(done)
 		close(response)

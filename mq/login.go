@@ -3,6 +3,7 @@ package mq
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 )
@@ -32,7 +33,9 @@ func (service *Service) Signin(
 	ctx context.Context,
 	params SigninParams) (*SigninResult, error) {
 
-	fmt.Println("->", params)
+	params.TS = time.Now().UnixNano()
+
+	fmt.Printf("REQ %s -> %s\n", LOGIN_SIGNIN, params.String())
 
 	data, err := service.codec.Marshal(params)
 	if err != nil {
@@ -45,14 +48,14 @@ func (service *Service) Signin(
 	err = service.request(ctx, LOGIN_SIGNIN, data,
 
 		func(message *redis.Message) error {
-			result := &SigninResult{}
+			result := &SigninResult{TS: time.Now().UnixNano()}
 
 			err := service.codec.Unmarshal(message.Data, result)
 			if err != nil {
 				return err
 			}
 
-			fmt.Println("<-", result)
+			fmt.Printf("RESP %s <- %s\n", LOGIN_SIGNIN, result)
 
 			reply <- result
 
@@ -80,11 +83,11 @@ func (service *Service) HandleSignin(
 				return nil, err
 			}
 
-			fmt.Println("<-", params)
+			fmt.Printf("REQ %s <- %s\n", LOGIN_SIGNIN, params)
 
 			result := fn(params)
 
-			fmt.Println("->", result)
+			fmt.Printf("RESP %s -> %s\n", LOGIN_SIGNIN, result)
 
 			return service.codec.Marshal(result)
 		})

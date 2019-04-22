@@ -29,7 +29,7 @@ func (service *Service) PublishMetrics(metrics *Metrics) error {
 		return err
 	}
 
-	fmt.Println("->", metrics)
+	fmt.Printf("PUB %s -> %s\n", METRICS, metrics)
 
 	return service.publish(METRICS, data)
 }
@@ -38,9 +38,12 @@ func (service *Service) SubscribeToMetrics(
 	ctx context.Context,
 	reply chan *Metrics) error {
 
-	err := service.subscribe(ctx, METRICS,
+	err := service.subscribe(SubscribeParams{
+		Context: ctx,
+		Channel: METRICS,
+		Ping:    time.Minute,
 
-		func(message *redis.Message) error {
+		OnMessage: func(message *redis.Message) error {
 			metrics := &Metrics{}
 
 			err := service.codec.Unmarshal(message.Data, metrics)
@@ -48,17 +51,13 @@ func (service *Service) SubscribeToMetrics(
 				return err
 			}
 
-			fmt.Println("<-", metrics)
+			fmt.Printf("SUB %s <- %s\n", METRICS, metrics)
 
 			reply <- metrics
 
 			return nil
 		},
-		time.Minute)
+	})
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
