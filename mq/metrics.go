@@ -11,7 +11,8 @@ import (
 
 type Metrics struct {
 	CPU map[string]interface{} `json:"cpu"`
-	RAM map[string]interface{} `json:"ram"`
+	MEM map[string]interface{} `json:"mem"`
+	NET map[string]interface{} `json:"net"`
 }
 
 func (metrics *Metrics) String() string {

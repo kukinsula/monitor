@@ -1,14 +1,22 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
-	"time"
+	"os"
 
+	"github.com/kukinsula/monitor/monitor/metric"
 	"github.com/kukinsula/monitor/mq"
 )
 
 func main() {
+	flag.Usage = func() { usage(nil) }
+
+	config := metric.NewConfig()
+
+	monitoring := NewMonitoring(config)
+
 	fmt.Println("Connecting...")
 
 	service, err := mq.NewService(":6379")
@@ -21,28 +29,11 @@ func main() {
 
 	fmt.Println("Successfully connected!")
 
-	for {
-		time.Sleep(time.Duration(random(500, 1000)) * time.Millisecond)
+	channel := make(chan *mq.Metrics)
 
-		metrics := &mq.Metrics{
-			CPU: map[string]interface{}{
-				"processors": []int64{
-					random(0, 100),
-					random(0, 100),
-					random(0, 100),
-					random(0, 100),
-				},
-			},
+	go monitoring.Start(channel)
 
-			RAM: map[string]interface{}{
-				"free": random(1000000, 16000000),
-				"used": random(1000000, 16000000),
-			},
-
-			// "ROM": map[string]interface{}{},
-			// "NET": map[string]interface{}{},
-		}
-
+	for metrics := range channel {
 		err = service.PublishMetrics(metrics)
 		if err != nil {
 			fmt.Printf("PUB Metrics failed: %v\n", metrics, err)
@@ -55,4 +46,14 @@ func main() {
 
 func random(min, max int) int64 {
 	return rand.Int63n(int64(max-min)) + int64(min)
+}
+
+func usage(err error) {
+	if err != nil {
+		fmt.Printf("Error: %s\n", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "usage: %s [OPTIONS]\n\n", os.Args[0])
+	flag.PrintDefaults()
+	os.Exit(1)
 }
